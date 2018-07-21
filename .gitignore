@@ -1,0 +1,4 @@
+*.png
+datasets
+__pycache__
+*.doc2vec
