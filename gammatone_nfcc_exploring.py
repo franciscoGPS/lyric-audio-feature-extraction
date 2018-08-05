@@ -38,7 +38,7 @@ def get_spectrogram(audio_file):
 
 
 
-files = [os.path.join(AUDIOS_PATH+"complete/",fn) for fn in os.listdir(AUDIOS_PATH+"complete/") if fn.endswith('.mp3')]
+files = [os.path.join(AUDIOS_PATH+"cuts/30s_cuts",fn) for fn in os.listdir(AUDIOS_PATH+"cuts/30s_cuts") if fn.endswith('.wav')]
 
 
 
@@ -49,21 +49,23 @@ for file in files:
 	fig = matplotlib.pyplot.figure()
 	axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
 		
-	new_file_name_path = AUDIOS_PATH+"cuts/30s_cuts/"+filename+".wav"
-	dataset.cut_30s_from_file(filename, file, AUDIOS_PATH+"cuts/")
+	#new_file_name_path = AUDIOS_PATH+"cuts/30s_cuts/"+filename+".wav"
+	#dataset.cut_30s_from_file(filename, file, AUDIOS_PATH+"cuts/")
 	#track_30s = AudioSegment.from_wav(new_file_name_path)
 	#play(track_30s)
 	#aa,bb,cc,dd, plt = get_spectrogram(new_file_name_path)
 	#matplotlib.pyplot.show()
 	#ipdb.set_trace()
 
-	(rate,sig) = wav.read(new_file_name_path)
+	#(rate,sig) = wav.read(new_file_name_path)
+	(rate,sig) = wav.read(file)
 	
 	
 	#fbank_feat = fbank(sig,samplerate=rate)
 
 		# Average the stereo signal
 	duration = False
+	#duration = len(signal) / rate
 	if duration:
 		nframes = duration * rate
 		sig = sig[0:nframes, :]
@@ -73,7 +75,7 @@ for file in files:
 	# Default gammatone-based spectrogram parameters	
 	twin = 0.250
 	thop = twin/2
-	channels = 2
+	channels = 16
 	fmin = 20
 
 
@@ -91,6 +93,7 @@ for file in files:
 
 
 	ipdb.set_trace()
+
 
 	img = axes.imshow(Z, extent=[0, duration, 1, 0], aspect=aspect_ratio)
 
@@ -155,6 +158,8 @@ for file in files:
 	axes.set_ylabel("Frequency")
 	
 	mfcc_feat = mfcc(sig,samplerate=rate)#(2992, 13)
+
+	mfcc(sig, rate, nfft=552, numcep=200, winlen=.500, winstep=.225 )
 	print("mfcc_feat.shape:", mfcc_feat.shape )
 	
 	matplotlib.pyplot.plot(mfcc_feat)
@@ -165,7 +170,9 @@ for file in files:
 
 	mfcc_one_line = mfcc_feat.reshape(38896, 1)
 	print("mfcc_one_line.T.shape", mfcc_one_line.T.shape)
+	ipdb.set_trace()
 
+	
 
 
 	fig = matplotlib.pyplot.figure()

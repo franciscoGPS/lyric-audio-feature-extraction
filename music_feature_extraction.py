@@ -45,6 +45,7 @@ def start_process():
 		fig = matplotlib.pyplot.figure()
 		axes = fig.add_axes([0.1, 0.1, 0.8, 0.8])
 			
+		
 		new_file_name_path = AUDIOS_PATH+"cuts/30s_cuts/"+filename+".wav"
 		dataset.cut_30s_from_file(filename, file, AUDIOS_PATH+"cuts/")
 		#track_30s = AudioSegment.from_wav(new_file_name_path)
