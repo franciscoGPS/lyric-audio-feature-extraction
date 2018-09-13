@@ -2,11 +2,13 @@
 
 import os
 import sys, getopt
+import random
 import numpy as np
 import ipdb
 import pandas as pd
 import scipy.io.wavfile as wav
 from scipy.stats import rankdata
+import pickle
 import os
 import keras
 import tensorflow as tf
@@ -18,6 +20,8 @@ from keras.models import Sequential
 from keras.models import Model
 from keras.layers import *
 from keras.utils import to_categorical
+from keras.utils import plot_model
+from keras.callbacks import ModelCheckpoint
 from keras.wrappers.scikit_learn import KerasClassifier
 from sklearn import preprocessing
 from sklearn import metrics
@@ -26,9 +30,9 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import cross_val_score
 from sklearn.cross_validation import train_test_split
 from sklearn.metrics import label_ranking_average_precision_score
+from sklearn.metrics import accuracy_score
 from sklearn.metrics.scorer import make_scorer
 from sklearn.grid_search import GridSearchCV
-from sklearn.externals import joblib
 from sklearn import svm
 from numpy import argmax
 from python_speech_features import mfcc
@@ -38,9 +42,22 @@ import skfuzzy as fuzz
 import corenlp
 import doc2vec_lyrics as d2v
 from cca_layer import CCA
+import json
 
+from DeepCCA.utils import load_data, svm_classify
+from DeepCCA.linear_cca import linear_cca
+from DeepCCA.models import build_BLSTM_model, build_DRNN_model, build_GRU_model, create_CNN_RNN
+from DeepCCA.DeepCCA import train_model, test_model as test_dcca, train_single_branch_model
+from DeepCCA.losses import cca_loss
+from DeepCCA.metrics import Metrics
 
-tbCallBack = keras.callbacks.TensorBoard(log_dir='./Graph', histogram_freq=0, write_graph=True, write_images=True)
+import librosa
+import librosa.display 
+
+#from keras import backend as K
+#K.set_image_dim_ordering('th')
+
+#tbCallBack = keras.callbacks.TensorBoard(log_dir='./Graph', histogram_freq=0, write_graph=True, write_images=True)
 filesystem_path = (os.path.abspath(os.path.join(os.path.dirname("__file__"), '../')) + '/spotify/')
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
@@ -48,147 +65,319 @@ config.log_device_placement = True  # to log device placement (on which device t
                                     # (nothing gets printed in Jupyter, only if you run it standalone)
 sess = tf.Session(config=config)
 set_session(sess) 
-MOODS = ['aggressive', 'bittersweet', 'calm', 'depressing', 'dreamy', 'fun', 'gay', 'happy', 'heavy', 'intense', 'melancholy', 'playful', 'quiet', 'quirky', 'sad', 'sentimental', 'sleepy', 'soothing', 'sweet']
+MOODS = ['aggressive', 'angry', 'bittersweet', 'calm', 'depressing', 'dreamy', 'fun', 'gay', 'happy', 'heavy', 'intense', 'melancholy', 'playful', 'quiet', 'quirky', 'sad', 'sentimental', 'sleepy', 'soothing', 'sweet']
 
-SUBMOODS = ['aggressive', 'fun', 'melancholy', 'quirky']
+SUBMOODS = []
+   
 
+def build_settings(config):
 
-def start_process(inputfile, samples, gtg):
+   test_size = [0.1]
+   twin = [ 1.024]
+   thop = [0.256]
+   channels =[16]
+   epochs =  [5]
+   
+   settings = {'test_size':test_size[config[0]], 'twin':twin[config[1]],
+    'thop':thop[config[2]],'channels':channels[config[3]],
+     'epochs':epochs[config[4]]}
+   
+   return settings
+
+def get_configs(config):
+
+   learning_rate =  [0.01]
+   reg_par = [1e-5]
+
+   outdim_size = [20]
+   neurons_lstm =  [20]
+   neurons1 =  [ 64, 32]
+   neurons2 =  [ 64, 32]
+   neurons3 =  [ 32, 16]
+   
+   dropout =  [ 0.5]
+   validation_split =  [0.1]
+   
+   activation_model1 =  ['softmax' ]
+   activation_model2 = ['softmax' ]
+   activation_model3 = ['softmax' ]
+   
+   dense_size = [20]
+   activation_lstm = ['softmax' ]
+
+   settings = {'learning_rate':learning_rate[config[0]], 'reg_par':reg_par[config[1]],
+    'outdim_size':outdim_size[config[2]],'neurons_lstm':neurons_lstm[config[3]], 
+    'neurons1':neurons1[config[4]], 'neurons2':neurons2[config[5]], 'neurons3':neurons3[config[6]],
+     'dropout':dropout[config[7]], 'validation_split':validation_split[config[8]]
+    , 'activation_model1':activation_model1[config[9]], 'activation_model2':activation_model2[config[10]],
+     'activation_model3':activation_model3[config[11]], 'dense_size':dense_size[config[12]], 
+     'activation_lstm': activation_lstm[config[13]]}
+   
+   return settings
+
+def start_process(samples, network, random_moods = 0,  label = "" , epoch_input=3):
    results = pd.DataFrame()
-   #tf.enable_eager_execution()
-   devide_mfcc = False
-   calculate_mixed = False
-   test_size = 0.3
-   if gtg:
-      (labels1,  x_mfcc1, labels_gtg, x_gtg, bow_infered, lyrics_infered, mfcc_mixed) =  extract_data(inputfile,
-       devide_mfcc, gtg, samples, calculate_mixed=calculate_mixed)
-      #gtg_X_train, gtg_X_test, gtg_y_train, gtg_y_test = split_data(labels_gtg, x_gtg, test_size )
+
+   #datadirs = ["datasets/cuts/30s_cuts1", "datasets/cuts/30s_cuts2" , "datasets/cuts/30s_cuts3"]
+   datadirs = ["datasets/cuts/30s_cuts2"]
+   overall_results = {'gtg': [], 'mfcc': [], 'dataset_config':[], 'dataset': []}
+
+   calculate_submoods(random_moods)
+
+   for directory in range(len(datadirs)):
+      overall_results = {'gtg': [], 'mfcc': [], 'dataset_config':[], 'dataset': []}
+ 
+      dataset_settings = [[0, 0,0, 0, 0]]
+
+      for setting in range(len(dataset_settings)):
+         print(" ")
+         print("Settings available: ", len(dataset_settings))
+         print(" ")
+         print("Directory No." + str(directory) +"  Settings No"  +str(setting))
+         print(" ")
+       
+         dataset_config = build_settings(dataset_settings[setting])
+         test_size = dataset_config['test_size'] 
+         twin = dataset_config['twin']
+         thop = dataset_config['thop']
+         channels = dataset_config['channels']
+         epochs =  dataset_config['epochs']
+
+         divisions = 8
+         """
+         print("x_mfcc1[0].shape", x_mfcc1[0].shape)
+         """
+
+         #pickle_name = 'gamatones1D_2D_lyrics_labels_'+str(divisions)+'div_'+str(twin)+'_'+str(thop)+'_'+str(channels)+'_std_minmax.pickle'
+         pickle_name = 'gamatones1D_2D_lyrics_labels_4div_1.024_0.256_24_std_minmax.pickle'
+         #pickle_name = 'gamatones1D_2D_lyrics_labels_8div_1.024_0.256_16ch_std_minmax.pickle'
+         #pickle_name = 'gamatones1D_2D_lyrics_labels_4div_1.024_0.256_24_std_minmax.pickle'
+         if not np.DataSource().exists(pickle_name):
+            
+            (labels1, labels_gtg, x_gtg, bow_infered, lyrics_infered, x_gtg_2d, x_gtgstd, x_gtgminmax) =  extract_data(datadirs[directory], samples, divisions= divisions,  twin=twin, thop=thop, channels=channels) 
+            dataset = [x_gtg, x_gtg_2d, lyrics_infered, labels1, x_gtgstd, x_gtgminmax ]
+            with open(pickle_name, 'wb') as output:
+         
+               pickle.dump(dataset, output)
+         
+         else:
+            with open(pickle_name, 'rb') as data:
+               dataset = pickle.load(data)
+
+
+               
+
+         x_gtg = dataset[0]
+         x_gtg_2d = dataset[1]
+         lyrics_infered = dataset[2]
+         labels1 = dataset[3] 
+         x_gtgstd = dataset[4]
+         x_gtgminmax = dataset[5]
+         
+         try:
+            if network == "CNN":
+               values = np.expand_dims(x_gtgminmax, axis=3)
+               
+            else:
+               values = x_gtg
+
+            print("shape", values.shape)  
+            print("GTG Start")
+
+            results = train_deepcca(values, labels1, lyrics_infered, labels1, network, epochs= epoch_input,  batch_size=1500, test_size = test_size, label=label)
+
+         except Exception as e:
+            ipdb.set_trace()
+         else:
+            pass
+         finally:
+            pass
+         
+         
+         #results = train_deepcca(x_gtg, labels1, bow_infered.squeeze(), labels1, network, epochs,  batch_size=1500, test_size = test_size, label=label)
+         overall_results['gtg'].append(results)
+         print("GTG Finish")
+
+         print(" ")
+         print(" ")
+
+
+
+         print(overall_results)
+
+         overall_results['dataset_config'].append([dataset_config])
+         overall_results['dataset'].append([datadirs[directory]])
+
+         output_file_name = datadirs[directory]+"_" +str(label)+"_"+str(setting)+"_"+str(divisions)+"_"+str(epochs) + "_"+str(twin)+ "_"+str(thop)+ "_"+str(channels)+".json"
+         with open(output_file_name, 'w') as outfile:
+            json.dump(overall_results, outfile)
+
    
 
+def train_deepcca(X1, y1, X2, y2, network = 0, epochs=20, batch_size=20, test_size = 0.3, label="" ):
 
-   else:
-      (labels1,  x_mfcc1, bow_infered, lyrics_infered) =  extract_data(inputfile, devide_mfcc, gtg, samples)
-
-
-
-   concat_gtg = np.concatenate((x_gtg.squeeze(), bow_infered), axis=1)
-   concat_gtg = concat_gtg.reshape(concat_gtg.shape[0], 1, concat_gtg.shape[1])
-   concat_mfcc = np.concatenate((x_mfcc1.squeeze(), bow_infered), axis=1)
-   if calculate_mixed:
-      concat_mfcc = concat_mfcc.reshape(concat_mfcc.shape[0], 1, concat_mfcc.shape[1])
-      concat_mfcc_mixed = np.concatenate((mfcc_mixed.squeeze(), bow_infered), axis=1)
-      concat_mfcc_mixed = concat_mfcc_mixed.reshape(concat_mfcc_mixed.shape[0], 1, concat_mfcc_mixed.shape[1])
-      gtg_X_train, gtg_X_test, gtg_y_train, gtg_y_test, bow_X_train, bow_X_test, lyr_X_train, lyr_X_test, concat_mfcc_mixed_train, concat_mfcc_mixed_test = train_test_split(x_gtg, labels_gtg, bow_infered, lyrics_infered, concat_mfcc_mixed,  test_size=test_size )
-   else:
-         gtg_X_train, gtg_X_test, gtg_y_train, gtg_y_test, bow_X_train, bow_X_test, lyr_X_train, lyr_X_test = train_test_split(x_gtg, labels_gtg, bow_infered, lyrics_infered,  test_size=test_size )
-
+   y1 = to_categorical(y1, 20) # One-hot encode the labels
    
-   #mfcc_mixed = mfcc_mixed.reshape(mfcc_mixed.shape[0], 1, mfcc_mixed.shape[1])
-
-
-   ipdb.set_trace()
-   train_dcca(x_gtg.squeeze(), labels_gtg.squeeze(), bow_infered.squeeze(), labels_gtg.squeeze(), 300, batch_size=20)
-   #evaluate_dataset(mfcc1_X_train, mfcc1_y_train,  mfcc1_X_test , mfcc1_y_test)
-
-   #evaluate_dataset( gtg_X_train, gtg_y_train, gtg_X_test , gtg_y_test)
-
-
-
-   #history = train_LSTM_model(concat_gtg, labels_gtg, 50)
-   """
-   epochs = 50
-   hidden_size = gtg_y_train.shape[1]
-
-   history2, model = train_RNNLSTM_model(concat_mfcc_mixed_train, gtg_y_train, hidden_size, epochs)
-   test_model(concat_mfcc_mixed_test, gtg_y_test, model)
-   plot_results(history2, epochs)
-
-
-   ipdb.set_trace()
-
-   input_sequences = Input(shape=(1,hidden))
-   processed_sequences = TimeDistributed(audio_model)(input_sequences)
-   lstm_out = LSTM(32)(processed_sequences)
-   mergedOut = Concatenate()([audio_model.output,lyrics_model.output])
-   """
-
-   
-   #scikitmodel = create_LSTM_model(mfcc1_X_train, mfcc2_y_train, hidden_size) 
-   #, fit_params = dict(callbacks=[tbCallBack, early_stopping])
-   
-
-
-   """
-
-   # evaluate using 10-fold cross validation
-   kfold = StratifiedKFold(n_splits=2, shuffle=True)
-   results = cross_val_score(best_model, mfcc1_X_train, mfcc1_y_train, cv=kfold)
-   print(results.mean())
-   
-  
-   early_stopping = callbacks.EarlyStopping(monitor='val_loss', patience=1, verbose=0, mode='auto')
-
-   pipe = pipeline.Pipeline([
-       ('nn', KerasClassifier(build_fn=create_BLSTM_model, nb_epoch=100, batch_size=15,
-                              validation_split=0.2, callbacks=[ tbCallBack]))
-   ])
-
-   pipe.fit(mfcc1_X_train , mfcc1_y_train )
-
-   #pipe.steps.append(('nn', model))
-
-   pred = pipe.predict_proba(mfcc1_X_test)[:, 0]
-
-
-
-   directory = os.path.dirname(os.path.realpath(__file__))
-   model_step = pipe.steps.pop(-1)[1]
-   joblib.dump(pipe, os.path.join(directory, 'pipeline.pkl'))
-   models.save_model(model_step.model, os.path.join(directory, 'model.h5'))
-   """
-
-
-def train_dcca(X1, y1, X2, y2, epoch_num, batch_size=200):
-
-   test_size = 0.4  
+   num_classes = np.unique(y1).shape[0] # there are 10 image classes
+   #y1_valid = to_categorical(y1_test, num_classes) # One-hot encode the labels
+   #y1_test = to_categorical(y1_test, num_classes) # One-hot encode the labels
 
    X1_train, X1_test, y1_train, y1_test, X2_train, X2_test, y2_train, y2_test = train_test_split(X1, y1, X2, y2, test_size=test_size)
    X1_test, X1_valid, y1_test, y1_valid, X2_test, X2_valid, y2_test, y2_valid = train_test_split(X1_test, y1_test, X2_test, y2_test, test_size=0.5)
 
-   ipdb.set_trace()
-
-   input_shape1= X1_train.shape[1]
-   input_shape2= X2_train.shape[1]
-
-   input1 = Input(shape=(input_shape2, ), name='audios')
-   input2 = Input(shape=(input_shape2, ), name='lyrics')
 
 
-   activation_model = 'sigmoid'
-   dense1_1 = Dense(1024, activation=activation_model, name='view_1_1')(input1)
-   dense1_2 = Dense(1024, activation=activation_model, name='view_1_2')(dense1_1)
-   dense1_3 = Dense(1024, activation=activation_model,  name='view_1_3')(dense1_2)
-   output1 = Dense(10, activation='linear', name='view_1_4')(dense1_3)
+   data1 = []
+   data2 = []
 
-   dense2_1 = Dense(1024, activation=activation_model,  name='view_2_1')(input2)
-   dense2_2 = Dense(1024, activation=activation_model,  name='view_2_2')(dense2_1)
-   dense2_3 = Dense(1024, activation=activation_model, name='view_2_3')(dense2_2)
-   output2 = Dense(10, activation='linear', name='view_2_4')(dense2_3)
 
-   shared_layer = concatenate([output1, output2], name='shared_layer')
+   num_classes = 20
 
-   cca_layer = CCA(1, name='cca_layer')(shared_layer)
+   data1.append([X1_train, y1_train])
+   data1.append([X1_valid, y1_valid])
+   data1.append([X1_test, y1_test])
 
-   model = Model(inputs=[input1, input2], outputs=cca_layer)
-   model.compile(optimizer='rmsprop', loss="mean_squared_error", metrics=[mean_pred])
-   hist = model.fit([X1_train, X2_train], np.zeros(len(X1_train)), batch_size=batch_size, epochs=epoch_num, shuffle=True, verbose=1,validation_data=([X1_valid, X2_valid], np.zeros(len(X2_valid))))
+   data2.append([X2_train, y2_train])
+   data2.append([X2_valid, y2_valid])
+   data2.append([X2_test, y2_test])
+
+   # size of the input for view 1 and view 2
+   #input_shape1 = X1_train.shape[2]
+   #input_shape2 = X2_train.shape[1]
+
    
-   current_dcca = Model(input=model.input, output=model.get_layer(name='shared_layer').output)
-   pred_out = current_dcca.predict([X1_test, X2_test])
-   half = int(pred_out.shape[1] / 2)
-   current_expert_data.append([pred_out[:, :half], pred_out[:, half:]])
+   # the parameters for training the network
+   epoch_num = epochs
+   batch_size = batch_size
+   
+   # the regularization parameter of the network
+   # seems necessary to avoid the gradient exploding especially when non-saturating activations are used
+   
 
-   ##TODO: Add SVM classification here
+   # specifies if all the singular values should get used to calculate the correlation or just the top outdim_size ones
+   # if one option does not work for a network or dataset, try the other one
+   use_all_singular_values = True
+
+   # if a linear CCA should get applied on the learned features extracted from the networks
+   # it does not affect the performance on noisy MNIST significantly
+   apply_linear_cca = True
+   best_accuracy = 0
+   if len(X1.shape) > 3:
+      num_train, height, width, depth = X1.shape
+   
+
+
+   input_size1 =  X1_train.shape[-1]
+
+   input_size2 =  X2_train.shape[1]
+
+
+   input_shape1_1 = X1_train.shape[1]
+   input_shape1_2 = X1_train.shape[-1]
+   
+   """
+   learning_rate =  [0.01]
+   reg_par = [1e-5]
+
+   outdim_size = [20]
+   neurons_lstm =  [20]
+   neurons1 =  [ 64, 32]
+   neurons2 =  [ 64, 32]
+   neurons3 =  [ 32, 16]
+   
+   dropout =  [ 0.5]
+   validation_split =  [0.1]
+   
+   activation_model1 =  ['softmax' ]
+   activation_model2 = ['softmax' ]
+   activation_model3 = ['softmax' ]
+   
+   dense_size = [20]
+   activation_lstm = ['softmax' ]
+
+   """
+
+   best_results = {'config':[], 'best_accuracy': []} 
+
+   configs = [[0,0, 0,0 ,0,0,0 ,0,0, 0,0,0, 0,0],
+              #[0,0, 0,0 ,0,1,1 ,0,0, 0,0,0, 0,0],
+              #[0,0, 2,0 ,1,1,1 ,1,0, 2,2,2, 1,2],
+              ]
+
+   test_config = {}
+
+   for config in range(len(configs)):
+
+      test_config = get_configs(configs[config])
+      print(" ")
+      print("Settings available: ", len(configs))
+      print(" ")
+      print("Next Network config No: "  +str(config)+"/"+ str(len(configs)))
+      print(" ")
+      try:
+         model = None
+
+
+         if network == 'BLSTM':
+            model = build_BLSTM_model(input_size1, input_size2, test_config['dense_size'],
+                          test_config['learning_rate'], test_config['reg_par'], test_config['outdim_size'], 
+                          test_config['activation_lstm'], use_all_singular_values, test_config['neurons_lstm'], test_config['dropout'],
+                          test_config['activation_model1'], test_config['activation_model2'], test_config['activation_model3'],
+                          test_config['neurons1'], test_config['neurons2'], test_config['neurons3'])
+         elif network == 'DRNN':
+            model = build_DRNN_model(input_size1, input_size2, test_config['dense_size'],
+                          test_config['learning_rate'], test_config['reg_par'], test_config['outdim_size'], 
+                          test_config['activation_lstm'], use_all_singular_values, test_config['neurons_lstm'], test_config['dropout'],
+                          test_config['activation_model1'], test_config['activation_model2'], test_config['activation_model3'],
+                          test_config['neurons1'], test_config['neurons2'], test_config['neurons3'])
+         elif network == 'GRU':
+            model = build_GRU_model(input_size1, input_size2, test_config['dense_size'],
+                          test_config['learning_rate'], test_config['reg_par'], test_config['outdim_size'], 
+                          test_config['activation_lstm'], use_all_singular_values, test_config['neurons_lstm'], test_config['dropout'],
+                          test_config['activation_model1'], test_config['activation_model2'], test_config['activation_model3'],
+                          test_config['neurons1'], test_config['neurons2'], test_config['neurons3'])
+
+         elif network == 'CNN':
+            model = create_CNN_RNN(height, width, depth, input_size2, test_config['dense_size'],
+                          test_config['learning_rate'], test_config['reg_par'], test_config['outdim_size'], 
+                          test_config['activation_lstm'], use_all_singular_values, test_config['neurons_lstm'], test_config['dropout'],
+                          test_config['activation_model1'], test_config['activation_model2'], test_config['activation_model3'],
+                          test_config['neurons1'], test_config['neurons2'], test_config['neurons3'])
+
+            
+
+         plot_model(model, to_file=network+'_moldel.png')
+
+         model, hist = train_single_branch_model(model, data1, data2, epoch_num, batch_size, label)
+
+         model.summary()
+         
+         
+
+         new_data = test_dcca(model, data1, None, 20, False)
+
+
+         
+         # Training and testing of SVM with linear kernel on the view 1 with new features
+         
+         [test_acc, valid_acc] = single_svm_classify(new_data, C=0.01, axis=0, dual=False)
+         if test_acc >= best_accuracy:
+            best_accuracy = test_acc
+            best_results['config'].append(test_config)
+            best_results['best_accuracy'].append([best_accuracy])
+         print("Accuracy on view 1 (validation data) is:", valid_acc * 100.0)
+         print("Accuracy on view 1 (test data) is:", test_acc*100.0)
+         plot_results(hist)
+      
+      except Exception as e:
+         print(e)
+         best_results['config'].append(test_config)
+         
+
+
+
+
+   return best_results
 
    
 
@@ -198,54 +387,7 @@ def ranking_average_prescision(y, y_pred_probs):
    u0p, up, dp, jm, pp, fpc =  fuzz.cluster.cmeans_predict(up, cntr, 4, error=0.0005, maxiter=1000)
    ranking_score = label_ranking_average_precision_score(y, u0p.T)
 
-def ranking_precision(y, y_pred_probs):
-   presicion = 0
-   for test in range(len(y)):
-      presicion += 1 - rankdata(y_pred_probs[test])[np.argmax(y[test])-1]/len(y_pred_probs[test])
 
-   score = presicion/len(y_pred_probs)
-
-   return score
-
-def evaluate_dataset(X_train, y_train, X_test, y_test):
-   early_stopping = callbacks.EarlyStopping(monitor='val_loss', patience=1, verbose=2, mode='auto')
-   
-   model_classifier = KerasClassifier(build_fn=create_BLSTM_model, epochs=50, batch_size=10,
-    verbose=1, validation_split=0.3)
-
-
-   my_scorer = make_scorer(ranking_precision, greater_is_better=True, needs_proba=True)
-
-   size = X_train.shape[2]
-   validator = GridSearchCV(model_classifier,
-                         param_grid={# epochs is avail for tuning even when not
-                                     # an argument to model building function
-                                     #'input_size': [int(mfcc1_X_train.shape[2])],
-                                     'epochs': [ 100, 120],
-                                     'hidden_size':[50 , 75, size, size*2],
-                                     'dropout': [0.5,0.6],
-                                     'size': [size]
-                                     },
-                         scoring=my_scorer,
-                         n_jobs=1)
-   
-   validator.fit(X_train, y_train)
-
-   print('The parameters of the best model are: ')
-   print(validator.best_params_)
-
-   # validator.best_estimator_ returns sklearn-wrapped version of best model.
-   # validator.best_estimator_.model returns the (unwrapped) keras model
-   best_model = validator.best_estimator_.model
-   best_model.summary()
-
-   metric_names = best_model.metrics_names
-   metric_values = best_model.evaluate(X_test, y_test)
-   
-
-   for metric, value in zip(metric_names, metric_values):
-       print(metric, ': ', value)
-   
    
 def get_lyrics_dict():
 
@@ -256,11 +398,11 @@ def get_lyrics_dict():
 
 
 def get_lyrics(video_id):
-   query_result = lyrycs_df.query('youtube_video_id ==  @video_id')
+   query_result = lyrycs_df.query('youtube_video_id ==  @video_id_no_div')
    bow = query_result['bow'].values[0]
    lyric = query_result['lyric'].values[0]
 
-def extract_data(audioset_path, devide_mfcc=True, calculate_gtg=True, samples=-1, calculate_mixed=False):
+def extract_data(audioset_path, samples, divisions = 1, twin=0.5, thop=0.250, channels=1):
 
    model_directory = os.path.dirname(os.path.realpath(__file__))+ "/apnews_dbow/"
 
@@ -273,262 +415,150 @@ def extract_data(audioset_path, devide_mfcc=True, calculate_gtg=True, samples=-1
    labels_gtg = []
    lyrics_infered = []
    bow_infered = []
-   tokens = []
    x_mfcc_1 = []
-   x_mfcc_2 = []
+   x_gtg_2d = []
+   gtg_minmax = []
+   gtg_std = []
    x_gtg = []
-   x_mixed = []
    counter = 0
    errors = {"error":[], "counter":[]}
-   twin = 0.3
-   thop = 0.3
-   channels = 3
+   
    fmin = 20
 
    doc2vec = d2v.doc2vec_model(model_directory, model_name="doc2vec.bin", lyrics_filename="integral_synced_SongsMoodsFile.csv")
    
    doc2vec_model = doc2vec.load_model()
-
+   samplerate = 161
 
    lyrycs_df = get_lyrics_dict()
-   for audiopath in saved_files[:samples]:
+   scaler_gtg = preprocessing.StandardScaler()
+   minmax_scaler = preprocessing.MinMaxScaler()
 
+   for audiopath in saved_files[:samples]:
       try:
         # if audiop5000.split("/")[-1].split("_")[0] in ['aggressive', 'happy', 'sad', 'sweet']:
-         (rate,sig) = wav.read(audiopath)
+         #(rate,sig) = wav.read(audiopath)
+
+         sig, rate = librosa.load(audiopath, res_type='scipy')
+         
          duration = len(sig) / rate
          if duration >= 30:
             #signal, rate, freq = 0.5, numcep=1, winlen = 1, winstep = 0.5 #
             audio_name = audiopath.split("/")[-1]
+               
+            if len(SUBMOODS) > 0:
+               MOODS = SUBMOODS
+
             mood = audio_name.split("_")[0]
+
             if mood in MOODS:
                video_id = audio_name[-15:-4]
                query_result = lyrycs_df.query('youtube_video_id ==  @video_id')
                lyc = query_result['lyric'].values[0]
-               
-               mfcc_1 = get_mfcc(sig, rate, 1, channels, twin, thop)
-               print("mfcc_1.shape:", mfcc_1.shape)
-               
                bow = query_result['bow'].values[0]
                # Tokenize, its not working. We already have cleaned lyrics.
                # client =  corenlp.CoreNLPClient(annotators="tokenize ssplit sentiment".split())
                #tokenzed_lyc = client.annotate(lyc)
                #tokenzed_bow = client.annotate(bow)
-               bow_infered.append(doc2vec_model.infer_vector(bow))
-               lyrics_infered.append(doc2vec_model.infer_vector(lyc))
+               bow_inf = doc2vec_model.infer_vector(bow)
+               lyr_inf = doc2vec_model.infer_vector(lyc)
+
+               sig = np.array(sig).astype(np.float32)
+               sig[sig == 0] = 0.000001
+               
+               fifth = int(len(sig)/divisions)
+
+               for slice_sig in range(divisions):
+                  
+                  sig_slice = sig[fifth*slice_sig:fifth*(slice_sig+1)]
+                  
+                  #mfcc_1 = get_mfcc(sig_slice, rate, channels, twin, thop)
+                               
+                  #mfcc_1_scaled = scaler_mfcc.fit_transform(mfcc_1)
 
 
-               if calculate_gtg:
+                  #mfcc_1 = np.array(mfcc_1.reshape(1, mfcc_1_scaled.size)).astype(np.float32)
+                  #mfcc_1 = preprocessing.normalize(np.array(mfcc_1).astype(np.float32))
+                  #print("mfcc_1.shape:", mfcc_1.shape)
                   
-                  #gtg = get_gtg(rate, sig, 0.3, thop, 3, fmin)
-                  gtg = get_gtg(rate, sig, twin, thop, channels, fmin)
+                  gtg = get_gtg(rate, sig_slice, twin, thop, channels, fmin)
+                  gtg_std_scaled = scaler_gtg.fit_transform(gtg) 
+                  gtg_minmax_scaled = minmax_scaler.fit_transform(gtg)
+
                   
-                  print("gtg.shape: ", gtg.shape)
+
+                  #gtg = preprocessing.normalize(np.array(gtg).astype(np.float32))
+                  #print("gtg.shape: ", gtg.shape)
+                  
                   labels_gtg.append(int(MOODS.index(mood)))
+                  labels_1.append(int(MOODS.index(mood)))
+                  
+                  
+                  bow_infered.append(bow_inf)
+                  lyrics_infered.append(lyr_inf)
+                  
                   x_gtg.append(np.array(gtg.reshape(1, gtg.size)).astype(np.float32))
 
-                  if calculate_mixed:
-                     #gtg_to_mfcc = get_gtg(rate, sig, twin, thop, 4, fmin)
-                     mfcc_gtg = get_mfcc(gtg, rate, 0.3, 26, 1, .5)
-                     print("mfcc_gtg.shape", mfcc_gtg.shape)
-                     x_mixed.append(np.array(mfcc_gtg.reshape(1, mfcc_gtg.size)).astype(np.float32))
-               
+                  #x_mfcc_1.append(np.array(mfcc_1.reshape(1, mfcc_1.size)).astype(np.float32))
+                  x_gtg_2d.append(np.array(gtg).astype(np.float32))
 
-               
+                  gtg_std.append(np.array(gtg_std_scaled).astype(np.float32))
+                  gtg_minmax.append(np.array(gtg_minmax_scaled).astype(np.float32))
 
-               if devide_mfcc:
-                  for seq in range(len(mfcc_1)):
-                     x_mfcc_1.append(np.array(mfcc_1[seq].reshape(1, mfcc_1[seq].size)).astype(np.float32))
-                     labels_1.append(int(MOODS.index(mood)))
-               else:
-                  labels_1.append(int(MOODS.index(mood)))
-                  x_mfcc_1.append(np.array(mfcc_1.reshape(1, mfcc_1.size)).astype(np.float32))
-                  #x_gtg.append(np.array(gtg.reshape(1, gtg.size)).astype(np.float32))
-                  #x_gtg.append(gtg.reshape(gtg.size,1))
+               """               
+               mfcc_gtg = get_mfcc(gtg, rate, 0.3, 26, 1, .5)
+               print("mfcc_gtg.shape"
+               librosa, mfcc_gtg.shape)
+               mfcc_gtg = preprocessing.normalize(np.array(mfcc_gtg).astype(np.float32) )
+               x_mixed.append(np.array(mfcc_gtg.reshape(1, mfcc_gtg.size)).astype(np.float32))
+               """   
+
+            
       except Exception as e:
-         ipdb.set_trace()
          errors['error'].append(e)
          errors['counter'].append(e)
+         ipdb.set_trace()
+         print(e)
       print(counter)
       counter+=1   
       
-      
+   
    labels_np1 = np.array(labels_1).astype(dtype=np.uint8)
+   
    #labels_np2 = np.array(labels_2).astype(dtype=np.uint8)
    bow_infered = np.array(bow_infered).astype(np.float32)
    lyrics_infered = np.array(lyrics_infered).astype(np.float32)
-   x_mfcc_np1 = np.array(x_mfcc_1).astype(np.float32)
-
+   #x_mfcc_np1 = np.array(x_mfcc_1).astype(np.float32)
 
 
    #x_mfcc_np2 = np.array(x_mfcc_2).astype(np.float32)
-   labels_onehot1 = (np.arange(19) == labels_np1[:, None]).astype(np.float32)
+   #labels_onehot1 = (np.arange(19) == labels_np1[:, None]).astype(np.float32)
 
    #If already finished training a model (=no more updates, only querying, reduce memory usage
    doc2vec_model.delete_temporary_training_data(keep_doctags_vectors=True, keep_inference=True)
 
-   if calculate_gtg:
-      labels_gtg = np.array(labels_gtg).astype(dtype=np.uint8)
-      x_gtg_np = np.array(x_gtg).astype(np.float32)
-      x_mixed = np.array(x_mixed).astype(np.float32)
-      labels_onehotgtg = (np.arange(19) == labels_gtg[:, None]).astype(np.float32)
-      return labels_onehot1, x_mfcc_np1, labels_onehotgtg, x_gtg_np, bow_infered, lyrics_infered, x_mixed
-   #labels_onehot2 = (np.arange(19) == labels_np2[:, None]).astype(np.float32)
-   else:
-      return labels_onehot1, x_mfcc_np1, bow_infered, lyrics_infered
-
-
-
    
-
-def test_model(X_test, y_test, model):
+   x_gtg_np = np.array(x_gtg).astype(np.float32)
+   x_gtg_2d_np = np.array(x_gtg_2d).astype(np.float32)
+   x_gtg_std = np.array(gtg_std).astype(np.float32)
+   x_gtg_minmax = np.array(gtg_minmax).astype(np.float32)
    
-   correct = 0
-   yhat = model.predict_classes(X_test, verbose = 0)
-   #labels_np = np.array(yhat).astype(dtype=np.uint8)
-   #labels_onehot = (np.arange(19) == labels_np[:, None]).astype(np.float32)
-   scores = model.evaluate(X_test, y_test, verbose = 0)
-   for i in range(X_test.shape[0]):
-      if(np.argmax(y_test[i]) == yhat[i]):
-         print('Expected:', MOODS[np.argmax(y_test[i])], 'Predicted', MOODS[yhat[i]])
-         correct+=1
-         print()
-
-
-   model.summary()
-   accuracy = correct/X_test.shape[0]
-   print("accuracy: %.6f" % accuracy*100 )
-   print("Accuracy: %.2f%%" % (scores[1]*100))
-   return accuracy
+   #x_mixed = np.array(x_mixed).astype(np.float32)
+   labels_onehotgtg = (np.arange(20) == labels_np1[:, None]).astype(np.float32)
+   return labels_np1, labels_onehotgtg, x_gtg_np, bow_infered, lyrics_infered, x_gtg_2d_np, x_gtg_std, x_gtg_minmax
    
-   
-
-
-def train_double_LSTM(X, y, model, hidden_size):
-   loss = list()
-   print(X.shape)
-   print(y.shape)
-   
-   model.add(LSTM(hidden_size, return_sequences=True, stateful=False, input_shape=(1, X.shape[2])))
-   model.add(Dropout(0.5))
-   #model.add(LSTM(hidden_size, return_sequences=False))
-   #model.add(Dropout(0.2))
-   model.add(Dense(19, activation='softmax'))
-   model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=['accuracy'])  
-   history = model.fit(X, y, epochs=100, verbose=0, batch_size=20, callbacks=[tbCallBack], shuffle=True)
-
-   # summarize history for loss
-   plt.plot(history.history['loss'])
-   """
-   plt.title('double LSTM model loss')
-   plt.ylabel('loss')
-   plt.xlabel('epoch')
-   plt.legend(['train', 'test'], loc='upper left')
-   """
-   model.summary()
-   #plt.show()
-   return history
-
-def audio_dnn(X, y):
-   
-   print(X.shape)
-   print(y.shape)
-   model = Sequential()
-   model.add(Dense(1024, input_shape=(X.squeeze().shape[1],), activation="sigmoid" ))
-   # now the model will take as input arrays of shape (*, 16)
-   # and output arrays of shape (*, 32)
-
-   #model.add(Activation('sigmoid'))
-   model.add(Dense(1024, activation="sigmoid"))
-   #model.add(Activation('sigmoid'))
-   model.add(Dense(y.shape[1], activation='linear'))
-
-   model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=['accuracy'])  
-   model.fit(X.squeeze(), y, epochs=10, verbose=0, batch_size=20, callbacks=[tbCallBack], shuffle=True)
-
-
-
-   return model
-
-
-# Function to create model, required for KerasClassifier
-def create_BLSTM_model(hidden_size, dropout, size):
-   # create model
-   #hidden_size=50
-   #input_size=116
-
-   
-   model = Sequential()
-   model.add(Bidirectional(LSTM(hidden_size, stateful=False), input_shape=(1, size) ))
-   model.add(Dropout(dropout))
-   model.add(Dense(19, activation='softmax'))
-   # Compile model
-   model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=['accuracy'])  
-   
-   return model
-
-
-
-def train_LSTM_model(X, y, hidden_size, epochs): 
-   loss = list()
-   model = Sequential()
-   print(X.shape)
-   print(y.shape)
-   
-   model.add(Bidirectional(LSTM(hidden_size, stateful=False), input_shape=(1, X.shape[2])))
-   model.add(Dropout(0.5))
-   model.add(Dense(19, activation='sigmoid'))
-   model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=['accuracy'])  
-   history = model.fit(X, y, epochs=epochs, verbose=2, batch_size=20, callbacks=[tbCallBack], shuffle=True, validation_split=0.2)
-   """
-   loss.append(history.history['loss'])
-   plt.plot(history.history['loss'])
-   plt.title('Bidirectional LSTM loss')
-   plt.ylabel('loss')
-   plt.xlabel('epoch')
-   plt.legend(['train', 'test'], loc='upper left')
-   """
-   model.summary()
-   #plt.show()
-   return history, model
-
-def train_RNNLSTM_model(X, y, hidden_size, epochs): 
-   loss = list()
-   model = Sequential()
-   print(X.shape)
-   print(y.shape)
-   
-   model.add(SimpleRNN(hidden_size))
-   model.add(Dropout(0.5))
-   model.add(Dense(19, activation='relu'))
-   model.compile(loss="categorical_crossentropy", optimizer="adam", metrics=['accuracy'])  
-   history = model.fit(X, y, epochs=epochs, verbose=2, batch_size=20, callbacks=[tbCallBack], shuffle=True, validation_split=0.2)
-   """
-   loss.append(history.history['loss'])
-   plt.plot(history.history['loss'])
-   plt.title('Bidirectional LSTM loss')
-   plt.ylabel('loss')
-   plt.xlabel('epoch')
-   plt.legend(['train', 'test'], loc='upper left')
-   """
-
-
-   model.summary()
-   #plt.show()
-   return history, model
 
 
 def get_gtg(rate, signal, twin, thop, channels, fmin):
-
-
    gtg = gtgram.gtgram(signal, rate, twin, thop, channels, fmin)
    Z = np.flipud(20 * np.log10(gtg))
-   gtg = Z.reshape(1, Z.size)
-   return gtg
+   return Z
 
 
-def get_mfcc(signal, rate, freq = 0.5, numcep=1, twin = 1, thop = 0.5 ):
-   return mfcc(signal, samplerate=rate*freq, numcep=numcep, winlen=twin,winstep=thop )
+def get_mfcc(signal, rate, numcep=1, twin = 1, thop = 0.5 ):
+   mfcc = librosa.feature.mfcc(signal, sr=rate, n_mfcc=numcep).T
+   #mfcc(signal, samplerate=rate, numcep=numcep, winlen=twin,winstep=thop )
+   return mfcc
 
 
 def split_data(labels, X, size):
@@ -536,14 +566,12 @@ def split_data(labels, X, size):
    return X_train, X_test, y_train, y_test
 
 
-def plot_results(hist, epochs):
-   xc = range(epochs)
+def plot_results(hist):
+   xc = range(len(hist.history['loss']))
 
    train_loss = hist.history['loss']
    val_loss = hist.history['val_loss']
-   train_acc = hist.history['acc']
-   val_acc = hist.history['val_acc']
-
+   
    #First image
    plt.figure(1, figsize=(7,5))
    plt.plot(xc, train_loss)
@@ -555,17 +583,27 @@ def plot_results(hist, epochs):
    plt.legend(["train", "val"])
    plt.style.use(['classic'])
 
-   #Second image
-   plt.figure(2, figsize=(7,5))
-   plt.plot(xc, train_acc)
-   plt.plot(xc, val_acc)
-   plt.xlabel("Num. Epochs")
-   plt.ylabel("Loss")
-   plt.title("train_acc vs val_acc")
-   plt.grid(True)
-   plt.legend(["train", "val"], loc=4)
-   plt.style.use(['classic'])
+   try:
+      train_acc = hist.history['acc']
+      val_acc = hist.history['val_acc']
+
+
+      #Second image
+      plt.figure(2, figsize=(7,5))
+      plt.plot(xc, train_acc)
+      plt.plot(xc, val_acc)
+      plt.xlabel("Num. Epochs")
+      plt.ylabel("Loss")
+      plt.title("train_acc vs val_acc")
+      plt.grid(True)
+      plt.legend(["train", "val"], loc=4)
+      plt.style.use(['classic'])
+      
+   except Exception as e:
+      print("Error: ", e)
+
    plt.show()
+   
 
 
 def constant_loss(y_true, y_pred):
@@ -575,46 +613,117 @@ def mean_pred(y_true, y_pred):
     return K.mean(y_pred)
 
 
-def svm_classify(data, C):
+def fuzzy_svms_classify(data ):
+   cntr, uc, u0c, dc, jm, pc, fpc = fuzz.cluster.cmeans(mfcc2_X_trainT, 19, 2, error=0.005, maxiter=1000, init=None)
+   u0p, up, dp, jm, pp, fpc =  fuzz.cluster.cmeans_predict(mfcc2_X_testT, cntr, 4, error=0.005, maxiter=1000)
+
+def single_svm_classify(data, C, axis = 0, dual=False):
     """
     trains a linear SVM on the data
     input C specifies the penalty factor of SVM
     """
-    train_data, _, train_label = data[0]
-    valid_data, _, valid_label = data[1]
-    test_data, _, test_label = data[2]
+    train_data, train_label = data[0]
+    valid_data, valid_label = data[1]
+    test_data, test_label = data[2]
 
     print('training SVM...')
     clf = svm.LinearSVC(C=C, dual=False)
-    clf.fit(train_data, train_label.ravel())
+    
+    clf.fit(train_data, np.argmax(train_label, axis=1))
 
-    p = clf.predict(test_data)
-    test_acc = accuracy_score(test_label, p)
-    p = clf.predict(valid_data)
-    valid_acc = accuracy_score(valid_label, p)
+    preds = clf.predict(test_data)
+    test_acc = accuracy_score(np.argmax(test_label, axis=1), preds)
 
+    preds = clf.predict(valid_data)
+    valid_acc = accuracy_score(np.argmax(valid_label, axis=1), preds)
+ 
     return [test_acc, valid_acc]
 
 
+def svm_classify(data, C, axis = 0, dual=False):
+    """
+    trains a linear SVM on the data
+    input C specifies the penalty factor of SVM
+    """
+    train_data, train2_data, train_label = data[0]
+    valid_data, valid2_data, valid_label = data[1]
+    test_data, test2_data, test_label = data[2]
+
+
+
+
+    print('training SVM...')
+    clf = svm.LinearSVC(C=C, dual=False)
+    
+    if axis == 0:
+       clf.fit(train_data, np.argmax(train_label, axis=1))
+
+       preds = clf.predict(test_data)
+       test_acc = accuracy_score(np.argmax(test_label, axis=1), preds)
+
+       preds = clf.predict(valid_data)
+       valid_acc = accuracy_score(np.argmax(valid_label, axis=1), preds)
+    else:
+       clf.fit(train2_data, np.argmax(train_label, axis=1))
+
+       preds = clf.predict(test2_data)
+       test_acc = accuracy_score(np.argmax(test_label, axis=1), preds)
+
+       preds = clf.predict(valid2_data)
+       valid_acc = accuracy_score(valid_label, preds)
+
+
+
+
+    return [test_acc, valid_acc]
+
+def calculate_submoods(random_moods):
+
+   if random_moods != 0 and random_moods <= 20:
+
+      secure_random = random.SystemRandom()
+
+      while len(SUBMOODS) < random_moods:
+         rand_select = secure_random.choice(MOODS)
+         if rand_select not in SUBMOODS:
+            SUBMOODS.append(rand_select)
+            MOODS.remove(rand_select)
+
+      print("")
+      print("")
+      print("Selected moods: ", SUBMOODS)
+      print("")
+      print("")
+
 def main(argv):
-   inputfile = ''
+   
    samples = -1
-   gtg = True
+   label = ""
+   network = ""
+   epochs = 1
+   
    try:
-      opts, args = getopt.getopt(argv,"hi:s:",["ifile=", "samples="])
+      opts, args = getopt.getopt(argv,"hi:se:l:n:m:e:",["ifile=", "samples="])
    except getopt.GetoptError:
-      print( 'keras_build.py -i <inputfile> -s <samples=-1> ')
+      print( 'keras_build.py -s <samples=-1>  -l <label=""> -n <network="GRU/DRNN/BLSTM"> -m <moods="int">')
       sys.exit(2)
    for opt, arg in opts:
       if opt == '-h':
-         print( 'test.py -i <inputfile> ')
+         print( 'keras_build.py -s <samples=-1>  -l <label=""> -n <network="GRU/DRNN/BLSTM">')
          sys.exit()
-      elif opt in ("-i", "--ifile"):
-         inputfile = arg.strip()
-   
       elif opt in ("-s","--samples"):
          samples = int(arg.strip())
-   start_process(inputfile, samples, gtg)
+      elif opt in ("-l","--label"):
+         label = str(arg.strip())
+      elif opt in ("-n", "--network"):
+         network = str(arg.strip())
+      elif opt in ("-m", "--moods"):
+         random_moods = int(arg.strip())
+      elif opt in ("-e", "--epochs"):
+         epochs = int(arg.strip())
+
+         
+   start_process(samples, network, random_moods=20, label=label, epoch_input=epochs)
 
 if __name__ == "__main__":
    main(sys.argv[1:])

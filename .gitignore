@@ -2,3 +2,8 @@
 datasets
 __pycache__
 *.doc2vec
+*.hdf5
+*.pickle
+*.csv
+*.h5
+/apnews_dbow/*

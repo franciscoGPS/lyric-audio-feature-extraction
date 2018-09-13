@@ -1,0 +1,29 @@
+{'gtg': [{'config': [{'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 512, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 8}, {'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 256, 'dropout': 0.2, 'validation_split': 0.2, 'activation_model1': 'sigmoid', 'activation_model2': 'relu', 'activation_model3': 'sigmoid', 'dense_size': 8}], 'best_accuracy': [[0.11284046692607004], [0.11284046692607004]]}], 'mfcc': [], 'mfcc_mixed': [{'config': [{'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 512, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 8}, {'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 256, 'dropout': 0.2, 'validation_split': 0.2, 'activation_model1': 'sigmoid', 'activation_model2': 'relu', 'activation_model3': 'sigmoid', 'dense_size': 8}], 'best_accuracy': [[0.07198443579766536], [0.09727626459143969]]}, {'config': [{'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 512, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 8}, {'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 256, 'dropout': 0.2, 'validation_split': 0.2, 'activation_model1': 'sigmoid', 'activation_model2': 'relu', 'activation_model3': 'sigmoid', 'dense_size': 8}, {'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 256, 'neurons3': 64, 'dropout': 0.2, 'validation_split': 0.3, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'relu', 'dense_size': 8}, {'learning_rate': 0.001, 'reg_par': 0.001, 'outdim_size': 16, 'neurons_lstm': 32, 'neurons1': 64, 'neurons2': 512, 'neurons3': 64, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'relu', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 16}], 'best_accuracy': [[0.08365758754863813], [0.09533073929961089], [0.09922178988326848], [0.10700389105058365]]}]}
+
+
+##
+2nd set
+{'gtg': [{'config': [{'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 512, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 8}], 'best_accuracy': [[0.08382066276803118]]}], 'mfcc': [], 'mfcc_mixed': [{'config': [{'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 512, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 8}, {'learning_rate': 0.005, 'reg_par': 0.001, 'outdim_size': 16, 'neurons_lstm': 32, 'neurons1': 64, 'neurons2': 512, 'neurons3': 64, 'dropout': 0.2, 'validation_split': 0.2, 'activation_model1': 'relu', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 16}], 'best_accuracy': [[0.08966861598440545], [0.0935672514619883]]}, {'config': [{'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 512, 'neurons3': 512, 'dropout': 0.2, 'validation_split': 0.1, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'sigmoid', 'dense_size': 8}, {'learning_rate': 0.001, 'reg_par': 0.0001, 'outdim_size': 8, 'neurons_lstm': 64, 'neurons1': 512, 'neurons2': 256, 'neurons3': 64, 'dropout': 0.2, 'validation_split': 0.3, 'activation_model1': 'sigmoid', 'activation_model2': 'sigmoid', 'activation_model3': 'relu', 'dense_size': 8}], 'best_accuracy': [[0.09941520467836257], [0.09941520467836257]]}]}
+
+##
+
+
+configs = [[0,0,0,1,0,0,0,0,0,0,0,0,0],
+              [0,0,0,1,0,0,1,0,1,0,1,0,0],
+              [0,0,0,1,0,1,2,0,2,0,0,1,0],
+              [1,1,1,0,2,2,0,0,0,0,0,0,1],
+              [0,1,1,0,2,0,1,0,0,1,0,0,0],
+              [1,1,1,0,2,0,2,0,1,1,0,0,1],
+              [2,2,2,0,1,1,0,0,2,0,0,0,2],
+              [0,2,2,0,1,0,1,0,0,0,2,0,2],
+              [2,2,2,0,1,2,2,0,0,0,0,0,1],
+              
+              [1,1,1,0,2,1,1,0,0,2,0,0,0],
+              [0,1,1,0,2,0,2,0,0,1,0,0,1],
+              [2,2,2,0,1,1,0,0,1,0,2,0,2],
+              [0,2,2,0,1,0,1,0,0,1,0,0,2],
+              [2,2,2,0,1,2,2,0,0,0,0,0,1]]
+
+
+
+#############################################################################################################################              

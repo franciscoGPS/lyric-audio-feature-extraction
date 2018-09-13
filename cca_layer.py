@@ -4,11 +4,16 @@ from keras import backend as T
 from keras.engine.topology import Layer
 import tensorflow as tf
 import numpy as np
+import ipdb
 
 
 def my_eigen(x):
+    try: 
+        return np.linalg.eigh(x)
+    except Exception as e:
+        ipdb.set_trace()
     #print("my_eigen x.shape: -->", x.shape)
-    return np.linalg.eigh(x)
+    return 
     #return np.linalg.eigvalsh(x)
 
 def my_svd(x):
@@ -28,7 +33,7 @@ class CCA(Layer):
         cca_space_dim: the number of singular values, i.e., k
     '''
 
-    def __init__(self, output_dim=1, use_all_singular_values=True, cca_space_dim=10, **kwargs):
+    def __init__(self, output_dim=1, use_all_singular_values=False, cca_space_dim=10, **kwargs):
         self.output_dim = output_dim
         self.cca_space_dim = cca_space_dim
         self.use_all_singular_values = use_all_singular_values
@@ -39,9 +44,9 @@ class CCA(Layer):
         super(CCA, self).build(input_shape)
 
     def call(self, x):
-        r1 = tf.constant([1e-4])
-        r2 = tf.constant([1e-4])
-        eps = tf.constant([1e-12])
+        r1 = tf.constant([1e-2])
+        r2 = tf.constant([1e-2])
+        eps = tf.constant([1e-6])
         o1 = o2 = tf.shape(x)[1] // 2
 
         H1 = T.transpose(x[:, 0:o1])

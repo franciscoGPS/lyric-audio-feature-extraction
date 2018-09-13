@@ -14,14 +14,16 @@ import dataset_verification as dataset
 from pydub import AudioSegment
 from pydub.playback import play
 from python_speech_features import mfcc
+from python_speech_features import fbank
+
 from python_speech_features import delta
 from python_speech_features import logfbank
 import scipy.io.wavfile as wav
 from gammatone import filters
 from gammatone import gtgram
 from gammatone import plot as gammaplot
-
-
+import librosa 
+import librosa.display
 
 AUDIOS_PATH = "/home/frisco/Documents/Nube/Projects/python/cross-modal/rnn-cross-modal/datasets/"
 
@@ -46,11 +48,11 @@ for file in files:
 	filename = file.split("/")[-1].split(".")[:-1][0]
 		
 	new_file_name_path = AUDIOS_PATH+"cuts/30s_cuts/"+filename+".wav"
-	dataset.cut_30s_from_file(filename, file, AUDIOS_PATH+"cuts/")
+	#dataset.cut_30s_from_file(filename, file, AUDIOS_PATH+"cuts/")
 	#track_30s = AudioSegment.from_wav(new_file_name_path)
 	#play(track_30s)
 	#aa,bb,cc,dd, plt = get_spectrogram(new_file_name_path)
-	
+		
 
 	fd = 2048
 	fs = 1024
@@ -58,9 +60,14 @@ for file in files:
 	f_size = fd * fs
 
 	(rate,sig) = wav.read(new_file_name_path)
+	x_brahms, sr_brahms = librosa.load(file, duration=30, offset= 30)
+
 	mfcc_feat = mfcc(sig,samplerate=rate)#(2992, 13)
-	mfcc_one_line = mfcc_feat.reshape(38896, 1)
-	#fbank_feat = fbank(sig,samplerate=rate)
+	
+	ipdb.set_trace()
+
+	#mfcc_one_line = mfcc_feat.reshape(38896, 1)
+	fbank_feat = fbank(sig,samplerate=rate)
 	logfbank_feat = logfbank(sig, samplerate=rate)
 	d_mfcc_feat = delta(mfcc_feat, 2)
 	#gammatone.gtgram.gtgram(wave, fs, window_time, hop_time, channels, f_min)
